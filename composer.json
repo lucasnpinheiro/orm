@@ -1,0 +1,19 @@
+{
+    "name": "rocketgears/orm",
+    "description": "An extremely minimal ORM for PHP and MySQL.",
+    "keywords": ["orm", "mysql"],
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "Daniel McCoy",
+            "email": "daniel@rocketgears.com"
+        }
+    ],
+    "require": {
+        "php": ">=5.4.0",
+        "phpunit/phpunit": "4.2.4"
+    },
+    "autoload": {
+        "psr-0": {"RocketGears\\": "src/"}
+    }
+}

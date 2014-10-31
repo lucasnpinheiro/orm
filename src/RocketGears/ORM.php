@@ -18,6 +18,7 @@
 		public static $exception_strings = array(
 			'100' => 'Invalid database connection string or credentials.',
 			'200' => 'Parent class not set.',
+
 			'201' => 'Database connection not initialized.',
 			'202' => 'Data object not initialized.',
 			'203' => 'String field name expected.',
@@ -26,6 +27,8 @@
 			
 			'300' => 'Object table name not set.',
 			
+			'400' => 'Relationship not defined.',
+			
 			'900' => 'An unknown error has occurred.',
 		);
 		
@@ -33,9 +36,24 @@
 		 * Object data
 		 */
 		protected $_data = array();
+
+		/**
+		 * Array for defining one to many relationships
+		 */
+		protected $_to_many = array();
+
+		/**
+		 * Array for defining one to one relationships
+		 */
+		protected $_to_one = array();
 		
-		
-		
+		/**
+		 * Constructor
+		 */
+		public function __construct(){ }
+
+
+
 		/**
 		 * Static initialization
 		 * @param string $pdo_connection_string
@@ -69,10 +87,11 @@
 		/**
 		 * Load an object by ID
 		 * @param int|string $object_id
+		 * @param array $data
 		 * @return ORM
 		 * @throws ORMException
 		 */
-		public static function load($object_id)
+		public static function load($object_id, $data = NULL)
 		{
 			// Check that the called class was inherited
 			$parent = get_called_class();
@@ -86,12 +105,12 @@
 			$parent = new $parent();
 
 			// Proxy call to parent
-			return $parent->_load($object_id);
+			return $parent->_load($object_id, $data);
 		}
 
 
 
-		private function _load($object_id)
+		private function _load($object_id, $data = NULL)
 		{
 			// Check that the object ID is a string
 			if(is_string($object_id) === FALSE && is_numeric($object_id) === FALSE)
@@ -101,7 +120,14 @@
 
 			// Check initilization
 			$this->_check_init();
-
+			
+			// Check if the data should be loaded from the method argument
+			if($data !== NULL && is_array($data) === TRUE)
+			{
+				$this->_data = $data;
+				return $this;
+			}
+			
 			// Get primary key
 			$prepare = self::$instance->prepare("SELECT * FROM `{$this->_get_table_name()}` WHERE `{$this->_get_primary_key()}` = :object_id LIMIT 1");
 			$prepare->execute(array('object_id' => $object_id));
@@ -114,6 +140,103 @@
 			return $this;
 		}
 
+
+
+		/**
+		 * Set one to many relationship
+		 * @param string $table
+		 * @param string $map_table
+		 * @return ORM
+		 */
+		public function _has_many($table, $map_table = NULL)
+		{
+			if($map_table === NULL)
+			{
+				// Set relationship
+				$this->_to_many[$table] = $table;
+
+				// Done
+				return $this;
+			}else{
+				// Set relationship
+				$this->_to_many_map[$table] = $map_table;
+
+				// Done
+				return $this;
+			}
+
+			throw new Exception("Relationship table does not exist.");
+		}
+
+
+
+		/**
+		 * @brief Set one to one relationship.
+		 * 
+		 * @param string $table - name of the table/model
+		 * @param string $map_table - table with id to id relationship mapping
+		 * @return object - ORM
+		 */
+		public function _has_one($table, $map_table = NULL)
+		{
+			if($map_table === NULL)
+			{
+				// Set relationship
+				$this->_to_one[$table] = $table;
+
+				// Done
+				return $this;
+			}else{
+				// Set relationship
+				$this->_to_one_map[$table] = $map_table;
+
+				// Done
+				return $this;
+			}
+		}
+
+
+
+		/**
+		 * @brief Magic method override.
+		 * 
+		 * @param string $name - method to call
+		 * @param array $arguments - parameters for method
+		 * @return mixed - instance of a ORM_Base derived class | array of ORM_Wrapper | unknown
+		 * @throws Exception - if unable to identify/locate the method $name
+		 */
+		public function __call($name, $arguments)
+		{
+			// One to many
+			if(isset($this->_to_many[$name]))
+			{
+				// Return wrapper
+				$return = new ORMWrapper;
+
+				// Get model records
+				$prepare = self::$instance->prepare("SELECT * FROM `{$this->_to_many[$name]}` WHERE `{$this->_get_table_name()}_id` = :object_id");
+				if($prepare->execute(array('object_id' => $this->_data["{$this->_get_table_name()}_id"])))
+				{
+					$model_name = str_replace(' ', '_', ucwords(str_replace('_', ' ', $this->_to_many[$name])));
+					while($data = $prepare->fetch(\PDO::FETCH_ASSOC))
+					{
+						eval('$object = '.$model_name.'::load(' . $data[$name."_id"] . ', $data);');
+						$return->push($object);
+					}
+				}
+				return $return;
+			}
+				
+			// One to one
+			if(isset($this->_to_one[$name]))
+			{
+				$model_name = str_replace(' ', '_', ucwords(str_replace('_', ' ', $this->_to_one[$name])));;
+				eval('$return = '.$model_name.'::load(' . $this->_data[$name."_id"] . ');');
+				return $return;
+			}
+							
+			throw new ORMException(ORM::$exception_strings[400], 400);
+		}
 
 		
 		/**
@@ -129,21 +252,21 @@
 				// No object is loaded
 				throw new ORMException(ORM::$exception_strings[202], 202);
 			}
-			
+
 			// Check that the field name is a string
 			else if(is_string($field_name) === FALSE && is_numeric($field_name) === FALSE)
 			{
 				// String field name expected
 				throw new ORMException(ORM::$exception_strings[203], 203);
 			}
-			
+
 			// Check that the requested field exists
 			else if(isset($this->_data[$field_name]) === FALSE)
 			{
 				// Field is not set
 				throw new ORMException(str_replace('[FIELD_NAME]', $field_name, ORM::$exception_strings[204]), 204);
 			}
-			
+
 			// Field is good
 			else if(isset($this->_data[$field_name]) === TRUE)
 			{
@@ -185,7 +308,7 @@
 				throw new ORMException(ORM::$exception_strings[300], 300);
 			}
 			
-			// Retuen table name
+			// Return table name
 			return $this->orm_table;
 		}
 

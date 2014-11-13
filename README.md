@@ -185,7 +185,7 @@ Address table definition:
 	echo "<ol>";
 	foreach($addresses as $address)
 	{
-		// Print the user role name
+		// Print the user address
 		echo "<li>{$address->get('street_1')}</li>";
 	}
 	echo "</ol>";
